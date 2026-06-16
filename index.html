@@ -235,7 +235,7 @@ textarea { resize: none; line-height: 1.5; }
             <div id="upload-area" class="upload-zone" onclick="document.getElementById('f-photo').click()">
               <div id="up-ph">
                 <svg width="28" height="28" fill="none" stroke="#bbb" stroke-width="1.5" viewBox="0 0 24 24" style="display:block;margin:0 auto"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                <p>点击上传单据照片</p>
+                <p>点击拍照或选择相册照片</p>
               </div>
               <div id="up-prev" style="display:none">
                 <img id="prev-img" class="photo-preview" src="" alt="">
@@ -245,7 +245,7 @@ textarea { resize: none; line-height: 1.5; }
                 </button>
               </div>
             </div>
-            <input type="file" id="f-photo" accept="image/*" capture="environment" style="display:none" onchange="photoSelect(event)">
+            <input type="file" id="f-photo" accept="image/*,image/heic,image/heif" style="display:none" onchange="photoSelect(event)">
           </div>
         </div>
       </div>
