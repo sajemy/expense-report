@@ -265,6 +265,7 @@ textarea { resize: none; line-height: 1.5; }
         </div>
         <div id="list-tabs" class="month-scroll" style="padding-top:10px"></div>
       </div>
+      <div id="storage-info" style="font-size:11px;color:var(--gray4);padding:0 4px 10px;text-align:right"></div>
       <div class="card" id="list-card">
         <div id="list-content"></div>
       </div>
@@ -335,6 +336,14 @@ if (!DB.expenses) DB.expenses=[];
 if (!DB.settings) DB.settings={};
 const save = () => localStorage.setItem(DB_KEY, JSON.stringify(DB));
 
+// 估算当前 localStorage 占用大小（MB），用于提示用户清理
+function getStorageUsageMB() {
+  try {
+    const data = JSON.stringify(DB);
+    return (data.length / 1024 / 1024).toFixed(2);
+  } catch(e) { return '?'; }
+}
+
 const now = new Date();
 let curYear = now.getFullYear();
 let listMonth = now.getMonth()+1;
@@ -397,16 +406,60 @@ function showPage(p) {
 
 // ── Photo ─────────────────────────────────────────────────────────────────────
 function photoSelect(e) { const f=e.target.files[0]; if(f) loadPhoto(f); }
-function loadPhoto(file) {
-  const r=new FileReader();
-  r.onload=ev=>{
-    curPhoto=ev.target.result;
-    document.getElementById('prev-img').src=curPhoto;
-    document.getElementById('up-ph').style.display='none';
-    document.getElementById('up-prev').style.display='';
-    document.getElementById('upload-area').classList.add('has-photo');
-  };
-  r.readAsDataURL(file);
+
+// 压缩图片：限制最大边长 + 转 JPEG 控制质量，大幅减小 base64 体积，避免撑爆 localStorage
+function compressImage(file, maxSize, quality) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const img = new Image();
+      img.onload = () => {
+        let w = img.width, h = img.height;
+        if (w > maxSize || h > maxSize) {
+          if (w > h) { h = Math.round(h * maxSize / w); w = maxSize; }
+          else { w = Math.round(w * maxSize / h); h = maxSize; }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.onerror = () => reject(new Error('\u56fe\u7247\u52a0\u8f7d\u5931\u8d25'));
+      img.src = ev.target.result;
+    };
+    reader.onerror = () => reject(new Error('\u6587\u4ef6\u8bfb\u53d6\u5931\u8d25'));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function loadPhoto(file) {
+  const uploadArea = document.getElementById('upload-area');
+  const originalCursor = uploadArea.style.cursor;
+  try {
+    // 压缩前显示提示
+    toast('\u6b63\u5728\u538b\u7f29\u7167\u7247...', 'info');
+
+    // 限制最大边长 1280px，JPEG 质量 0.7，通常能把几MB的照片压到几百KB
+    let compressed = await compressImage(file, 1280, 0.7);
+
+    // 如果压缩后仍然偏大（>1.5MB base64），再压缩一次，质量降低
+    if (compressed.length > 1.5 * 1024 * 1024) {
+      compressed = await compressImage(file, 1000, 0.5);
+    }
+
+    curPhoto = compressed;
+    document.getElementById('prev-img').src = curPhoto;
+    document.getElementById('up-ph').style.display = 'none';
+    document.getElementById('up-prev').style.display = '';
+    uploadArea.classList.add('has-photo');
+
+    const sizeKB = Math.round(compressed.length * 0.75 / 1024); // base64 → 实际字节估算
+    toast('\u7167\u7247\u5df2\u4f18\u5316\uff08\u7ea6 ' + sizeKB + ' KB\uff09', 'success');
+  } catch (err) {
+    console.error('compressImage failed:', err);
+    toast('\u7167\u7247\u5904\u7406\u5931\u8d25\uff0c\u8bf7\u91cd\u8bd5', 'error');
+  }
 }
 function rmPhoto(e) {
   e.stopPropagation(); curPhoto=null;
@@ -497,6 +550,16 @@ function renderList() {
   const counts={};
   DB.expenses.filter(e=>e.year===String(year)).forEach(e=>{counts[e.month]=(counts[e.month]||0)+1;});
   const tabs=document.getElementById('list-tabs'); tabs.innerHTML='';
+
+  // 显示存储占用情况
+  const usageMB = getStorageUsageMB();
+  const usageEl = document.getElementById('storage-info');
+  if (usageEl) {
+    const pct = (usageMB / 5 * 100).toFixed(0); // 假设可用约5MB作参考
+    const warnLevel = usageMB > 4 ? 'color:var(--red)' : (usageMB > 2.5 ? 'color:var(--amber,#92400E)' : '');
+    usageEl.innerHTML = `\u672c\u5730\u5b58\u50a8\u5df2\u7528\u7ea6 <b style="${warnLevel}">${usageMB} MB</b>${usageMB > 4 ? ' \u26a0\ufe0f \u5373\u5c06\u6ee1\uff0c\u5efa\u8bae\u5220\u9664\u65e7\u8bb0\u5f55\u6216\u5148\u751f\u6210PDF\u5b58\u6863' : ''}`;
+  }
+
   for(let m=1;m<=12;m++){
     const cnt=counts[String(m)]||0;
     const d=document.createElement('div');
