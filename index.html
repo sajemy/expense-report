@@ -418,6 +418,21 @@ function rmPhoto(e) {
 
 // ── Add ───────────────────────────────────────────────────────────────────────
 let isSaving = false;
+function setSaveBtnState(saving) {
+  const btn = document.querySelector('#page-add .btn-primary');
+  if (!btn) return;
+  if (saving) {
+    if (!btn.dataset.originalHtml) btn.dataset.originalHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.style.opacity = '0.6';
+    btn.innerHTML = '<span>\u4fdd\u5b58\u4e2d...</span>';
+  } else {
+    btn.disabled = false;
+    btn.style.opacity = '';
+    if (btn.dataset.originalHtml) btn.innerHTML = btn.dataset.originalHtml;
+  }
+}
+
 function addExpense() {
   if (isSaving) return; // 防止重复点击导致重复保存
   const sub=document.getElementById('f-sub').value.trim();
@@ -428,37 +443,52 @@ function addExpense() {
   const date=document.getElementById('f-date').value;
   const reason=document.getElementById('f-reason').value.trim();
   const amount=parseFloat(document.getElementById('f-amount').value);
-  if(!sub){toast('请填写报销人姓名','error');return;}
-  if(!name){toast('请填写项目名称','error');return;}
-  if(!date){toast('请选择发生日期','error');return;}
-  if(!reason){toast('请填写报销理由','error');return;}
-  if(!amount||amount<=0){toast('请输入有效金额','error');return;}
+  if(!sub){toast('\u8bf7\u586b\u5199\u62a5\u9500\u4eba\u59d3\u540d','error');return;}
+  if(!name){toast('\u8bf7\u586b\u5199\u9879\u76ee\u540d\u79f0','error');return;}
+  if(!date){toast('\u8bf7\u9009\u62e9\u53d1\u751f\u65e5\u671f','error');return;}
+  if(!reason){toast('\u8bf7\u586b\u5199\u62a5\u9500\u7406\u7531','error');return;}
+  if(!amount||amount<=0){toast('\u8bf7\u8f93\u5165\u6709\u6548\u91d1\u989d','error');return;}
 
   isSaving = true;
-  const btn = document.querySelector('#page-add .btn-primary');
-  const originalHTML = btn.innerHTML;
-  btn.disabled = true;
-  btn.style.opacity = '0.6';
-  btn.innerHTML = '<span>保存中...</span>';
+  setSaveBtnState(true);
 
-  DB.expenses.push({id:'e'+Date.now()+'_'+Math.floor(Math.random()*100000),sub,dept,year:String(year),month:String(month),name,date,reason,amount,photo:curPhoto,at:new Date().toISOString()});
-  DB.settings.sub=sub;DB.settings.dept=dept;save();
-  document.getElementById('f-name').value='';
-  document.getElementById('f-reason').value='';
-  document.getElementById('f-amount').value='';
-  document.getElementById('f-date').value=now.toISOString().split('T')[0];
-  rmPhoto({stopPropagation:()=>{}});
-  updateBadge();
-  window.scrollTo({top:0,behavior:'smooth'});
-
-  toast('已保存「'+name+'」¥'+amount.toFixed(2),'success');
-
-  setTimeout(()=>{
-    btn.disabled = false;
-    btn.style.opacity = '';
-    btn.innerHTML = originalHTML;
+  // 安全超时：无论如何，3秒后强制恢复按钮，避免永久卡死
+  const safetyTimer = setTimeout(()=>{
     isSaving = false;
-  }, 800);
+    setSaveBtnState(false);
+  }, 3000);
+
+  try {
+    DB.expenses.push({id:'e'+Date.now()+'_'+Math.floor(Math.random()*100000),sub,dept,year:String(year),month:String(month),name,date,reason,amount,photo:curPhoto,at:new Date().toISOString()});
+    DB.settings.sub=sub;DB.settings.dept=dept;
+
+    save(); // 可能因为 localStorage 容量超限而抛出异常
+
+    document.getElementById('f-name').value='';
+    document.getElementById('f-reason').value='';
+    document.getElementById('f-amount').value='';
+    document.getElementById('f-date').value=now.toISOString().split('T')[0];
+    rmPhoto({stopPropagation:()=>{}});
+    updateBadge();
+    window.scrollTo({top:0,behavior:'smooth'});
+
+    toast('\u5df2\u4fdd\u5b58\u300c'+name+'\u300d\u00a5'+amount.toFixed(2),'success');
+
+  } catch(err) {
+    console.error('addExpense save failed:', err);
+    // 保存失败，回滚刚才 push 进去的记录，避免内存和storage不一致
+    DB.expenses.pop();
+
+    if (err && err.name === 'QuotaExceededError') {
+      toast('\u5b58\u50a8\u7a7a\u95f4\u4e0d\u8db3\uff01\u8bf7\u5220\u9664\u4e00\u4e9b\u65e7\u8bb0\u5f55\u6216\u4e0d\u4e0a\u4f20\u7167\u7247\u540e\u91cd\u8bd5', 'error');
+    } else {
+      toast('\u4fdd\u5b58\u5931\u8d25\uff1a' + (err && err.message ? err.message : '\u672a\u77e5\u9519\u8bef'), 'error');
+    }
+  } finally {
+    clearTimeout(safetyTimer);
+    isSaving = false;
+    setSaveBtnState(false);
+  }
 }
 
 // ── List ──────────────────────────────────────────────────────────────────────
