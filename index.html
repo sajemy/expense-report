@@ -154,7 +154,7 @@ textarea { resize: none; line-height: 1.5; }
 .empty p { font-size: 13px; }
 
 /* ── Toast ── */
-.toast-wrap { position: fixed; top: calc(70px + env(safe-area-inset-top,0px)); left: 14px; right: 14px; z-index: 200; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
+.toast-wrap { position: fixed; top: calc(70px + env(safe-area-inset-top,0px)); left: 14px; right: 14px; z-index: 9999; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
 .toast { padding: 12px 16px; border-radius: var(--radius); font-size: 14px; box-shadow: 0 4px 16px rgba(0,0,0,0.12); animation: ti 0.2s ease; text-align: center; }
 .toast-success { background: var(--green-lt); color: var(--green); border: 0.5px solid #86EFAC; }
 .toast-error   { background: var(--red-lt);   color: var(--red);   border: 0.5px solid #FCA5A5; }
@@ -417,7 +417,9 @@ function rmPhoto(e) {
 }
 
 // ── Add ───────────────────────────────────────────────────────────────────────
+let isSaving = false;
 function addExpense() {
+  if (isSaving) return; // 防止重复点击导致重复保存
   const sub=document.getElementById('f-sub').value.trim();
   const dept=document.getElementById('f-dept').value.trim();
   const combo=document.getElementById('f-month-combo').value.split('_');
@@ -431,7 +433,15 @@ function addExpense() {
   if(!date){toast('请选择发生日期','error');return;}
   if(!reason){toast('请填写报销理由','error');return;}
   if(!amount||amount<=0){toast('请输入有效金额','error');return;}
-  DB.expenses.push({id:Date.now()+Math.random(),sub,dept,year:String(year),month:String(month),name,date,reason,amount,photo:curPhoto,at:new Date().toISOString()});
+
+  isSaving = true;
+  const btn = document.querySelector('#page-add .btn-primary');
+  const originalHTML = btn.innerHTML;
+  btn.disabled = true;
+  btn.style.opacity = '0.6';
+  btn.innerHTML = '<span>保存中...</span>';
+
+  DB.expenses.push({id:'e'+Date.now()+'_'+Math.floor(Math.random()*100000),sub,dept,year:String(year),month:String(month),name,date,reason,amount,photo:curPhoto,at:new Date().toISOString()});
   DB.settings.sub=sub;DB.settings.dept=dept;save();
   document.getElementById('f-name').value='';
   document.getElementById('f-reason').value='';
@@ -439,8 +449,16 @@ function addExpense() {
   document.getElementById('f-date').value=now.toISOString().split('T')[0];
   rmPhoto({stopPropagation:()=>{}});
   updateBadge();
-  toast('已保存「'+name+'」¥'+amount.toFixed(2),'success');
   window.scrollTo({top:0,behavior:'smooth'});
+
+  toast('已保存「'+name+'」¥'+amount.toFixed(2),'success');
+
+  setTimeout(()=>{
+    btn.disabled = false;
+    btn.style.opacity = '';
+    btn.innerHTML = originalHTML;
+    isSaving = false;
+  }, 800);
 }
 
 // ── List ──────────────────────────────────────────────────────────────────────
@@ -472,9 +490,9 @@ function renderList() {
   const total=items.reduce((s,i)=>s+i.amount,0);
   let h='';
   items.sort((a,b)=>a.date.localeCompare(b.date)).forEach((item,i)=>{
-    h+=`<div class="expense-item">
+    h+=`<div class="expense-item" data-item-id="${escAttr(item.id)}">
       ${item.photo
-        ?`<img class="expense-thumb" src="${item.photo}" onclick="viewPhoto('${item.id}')">`
+        ?`<img class="expense-thumb photo-view-btn" data-item-id="${escAttr(item.id)}">`
         :'<div class="expense-thumb-empty">无</div>'}
       <div class="expense-info">
         <div class="expense-name">${esc(item.name)}</div>
@@ -483,19 +501,56 @@ function renderList() {
       </div>
       <div class="expense-right">
         <span class="expense-amount">¥${item.amount.toFixed(2)}</span>
-        <button class="btn-danger-sm" onclick="delItem('${item.id}')">删除</button>
+        <button class="btn-danger-sm del-btn" data-item-id="${escAttr(item.id)}">删除</button>
       </div>
     </div>`;
   });
   h+=`<div class="total-row"><span class="total-lbl">本月合计</span><span class="total-val">¥${total.toFixed(2)}</span></div>`;
   el.innerHTML=h;
+
+  // 设置照片 src（避免 base64 直接拼进 HTML 字符串导致体积/转义问题，这里直接用 DOM 赋值）
+  el.querySelectorAll('.photo-view-btn').forEach(imgEl=>{
+    const id = imgEl.getAttribute('data-item-id');
+    const item = DB.expenses.find(e=>String(e.id)===String(id));
+    if(item && item.photo){ imgEl.src = item.photo; }
+  });
+
+  // 事件委托：删除按钮
+  el.querySelectorAll('.del-btn').forEach(btn=>{
+    btn.addEventListener('click', function(){
+      delItemByIndex(this.getAttribute('data-item-id'));
+    });
+  });
+  // 事件委托：查看照片
+  el.querySelectorAll('.photo-view-btn').forEach(imgEl=>{
+    imgEl.addEventListener('click', function(){
+      viewPhoto(this.getAttribute('data-item-id'));
+    });
+  });
 }
 
-function delItem(id) {
-  if(!confirm('确认删除此条记录？'))return;
-  DB.expenses=DB.expenses.filter(e=>String(e.id)!==String(id));
-  save();renderList();updateBadge();toast('已删除','info');
+function escAttr(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
+
+function delItemByIndex(id) {
+  if(!confirm('确认删除此条记录？'))return;
+  const idx = DB.expenses.findIndex(e => String(e.id) === String(id));
+  if (idx === -1) {
+    toast('删除失败，未找到该记录，请刷新页面重试','error');
+    console.error('delItem: id not found:', id);
+    console.error('available ids:', DB.expenses.map(e=>e.id));
+    return;
+  }
+  DB.expenses.splice(idx, 1);
+  save();
+  renderList();
+  updateBadge();
+  toast('已删除','info');
+}
+
+// 保留旧函数名作为兼容
+function delItem(id) { delItemByIndex(id); }
 
 // ── Summary ───────────────────────────────────────────────────────────────────
 function renderSummary() {
@@ -706,8 +761,13 @@ function viewPhoto(id) {
 function toast(msg,type='info'){
   const el=document.createElement('div');
   el.className=`toast toast-${type}`;el.textContent=msg;
-  document.getElementById('toasts').appendChild(el);
-  setTimeout(()=>el.remove(),2800);
+  const wrap=document.getElementById('toasts');
+  wrap.appendChild(el);
+  setTimeout(()=>{
+    el.style.transition='opacity 0.3s ease';
+    el.style.opacity='0';
+    setTimeout(()=>el.remove(),300);
+  },3000);
 }
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 initSelects();
