@@ -8,7 +8,6 @@
 <meta name="theme-color" content="#1A4D8F">
 <title>报销管理系统</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <style>
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -690,135 +689,261 @@ async function genPDF() {
   const year=document.getElementById('sum-year').value;
   const month=document.getElementById('sum-month').value;
   const items=DB.expenses.filter(e=>e.year===String(year)&&e.month===String(month));
-  if(!items.length){toast('\u5f53\u6708\u6ca1\u6709\u62a5\u9500\u8bb0\u5f55','error');return;}
+  if(!items.length){toast('当月没有报销记录','error');return;}
   const btn=document.getElementById('btn-pdf');
   const statusEl=document.getElementById('pdf-status');
   btn.disabled=true;
-  statusEl.innerHTML='<div class="pdf-progress"><div class="spinner"></div><span>\u6b63\u5728\u751f\u6210 PDF\uff0c\u8bf7\u7a0d\u5019...</span></div>';
+  statusEl.innerHTML='<div class="pdf-progress"><div class="spinner"></div><span>正在生成 PDF，请稍候...</span></div>';
   await new Promise(r=>setTimeout(r,80));
   try {
     const {jsPDF}=window.jspdf;
     const doc=new jsPDF({orientation:'portrait',unit:'mm',format:'a4'});
     doc.addFileToVFS('ZH.ttf',FONT_B64);
     doc.addFont('ZH.ttf','ZH','normal');
-    doc.setFont('ZH');
-    const subs=[...new Set(items.map(i=>i.sub).filter(Boolean))].join('\u3001');
-    const depts=[...new Set(items.map(i=>i.dept).filter(Boolean))].join('\u3001');
+    doc.setFont('ZH','normal');
+
+    const subs=[...new Set(items.map(i=>i.sub).filter(Boolean))].join('、');
+    const depts=[...new Set(items.map(i=>i.dept).filter(Boolean))].join('、');
     const total=items.reduce((s,i)=>s+i.amount,0);
     const W=210,M=16;
     const usableW=W-2*M;
     const fmt=n=>Number(n).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');
 
+    // 每次写字前都强制重新设置字体，避免被任何内部调用重置
+    function setZH(size, color){
+      doc.setFont('ZH','normal');
+      doc.setFontSize(size);
+      if(color) doc.setTextColor(color[0],color[1],color[2]);
+    }
+
     function drawHeader(pn){
       doc.setFillColor(26,77,143);
       doc.rect(0,0,W,pn===1?46:14,'F');
       if(pn===1){
-        doc.setFont('ZH');doc.setFontSize(20);doc.setTextColor(255,255,255);
-        doc.text('\u6708\u5ea6\u62a5\u9500\u6c47\u603b',M,18);
-        doc.setFontSize(10);doc.setTextColor(170,204,238);
-        doc.text(year+' \u5e74 '+month+' \u6708  \u00b7  '+(subs||'\u672a\u586b\u5199')+'  \u00b7  '+(depts||'\u672a\u586b\u5199'),M,28);
-        doc.setFontSize(9);doc.setTextColor(138,174,212);
-        doc.text('\u62a5\u9500\u603b\u91d1\u989d',W-M,13,{align:'right'});
-        doc.setFontSize(18);doc.setTextColor(255,255,255);
-        doc.text('\u00a5 '+fmt(total),W-M,24,{align:'right'});
+        setZH(20,[255,255,255]);
+        doc.text('月度报销汇总',M,18);
+        setZH(10,[170,204,238]);
+        doc.text(year+' 年 '+month+' 月  ·  '+(subs||'未填写')+'  ·  '+(depts||'未填写'),M,28);
+        setZH(9,[138,174,212]);
+        doc.text('报销总金额',W-M,13,{align:'right'});
+        setZH(18,[255,255,255]);
+        doc.text('¥ '+fmt(total),W-M,24,{align:'right'});
         doc.setDrawColor(68,119,187);doc.setLineWidth(0.4);
         doc.line(M,34,W-M,34);
       } else {
-        doc.setFont('ZH');doc.setFontSize(9);doc.setTextColor(170,204,238);
-        doc.text('\u6708\u5ea6\u62a5\u9500\u6c47\u603b \u00b7 '+year+'\u5e74'+month+'\u6708 \u00b7 '+subs,M,9);
-        doc.text('\u7b2c '+pn+' \u9875',W-M,9,{align:'right'});
+        setZH(9,[170,204,238]);
+        doc.text('月度报销汇总 · '+year+'年'+month+'月 · '+subs,M,9);
+        doc.text('第 '+pn+' 页',W-M,9,{align:'right'});
       }
       doc.setDrawColor(220,220,220);doc.setLineWidth(0.3);
       doc.line(M,282,W-M,282);
-      doc.setFont('ZH');doc.setFontSize(7);doc.setTextColor(180,180,180);
+      setZH(7,[180,180,180]);
       const gt=new Date().toLocaleString('zh-CN',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});
-      doc.text('\u751f\u6210\u65f6\u95f4\uff1a'+gt+'  \u00b7 \u5171 '+items.length+' \u9879  \u00b7 \u5408\u8ba1 \u00a5'+fmt(total),M,287);
+      doc.text('生成时间：'+gt+'  · 共 '+items.length+' 项  · 合计 ¥'+fmt(total),M,287);
     }
 
     drawHeader(1);
     let y=52;
-    doc.setFont('ZH');doc.setFontSize(8);doc.setTextColor(160,160,160);
-    doc.text('\u62a5\u9500\u4eba',M,y);doc.text('\u90e8\u95e8',M+46,y);doc.text('\u62a5\u9500\u6708\u4efd',M+92,y);doc.text('\u63d0\u4ea4\u65e5\u671f',M+138,y);
-    y+=5;doc.setFontSize(11);doc.setTextColor(17,17,17);
-    doc.text(subs||'\u2014',M,y);doc.text(depts||'\u2014',M+46,y);
-    doc.text(year+' \u5e74 '+month+' \u6708',M+92,y);
+    setZH(8,[160,160,160]);
+    doc.text('报销人',M,y);doc.text('部门',M+46,y);doc.text('报销月份',M+92,y);doc.text('提交日期',M+138,y);
+    y+=5;
+    setZH(11,[17,17,17]);
+    doc.text(subs||'—',M,y);doc.text(depts||'—',M+46,y);
+    doc.text(year+' 年 '+month+' 月',M+92,y);
     doc.text(new Date().toLocaleDateString('zh-CN',{year:'numeric',month:'2-digit',day:'2-digit'}),M+138,y);
     y+=4;doc.setDrawColor(220,220,220);doc.setLineWidth(0.3);doc.line(M,y,W-M,y);y+=7;
-    doc.setFont('ZH');doc.setFontSize(11);doc.setTextColor(26,77,143);
-    doc.text('\u62a5\u9500\u660e\u7ec6',M,y);y+=5;
+    setZH(11,[26,77,143]);
+    doc.text('报销明细',M,y);y+=6;
 
-    const colW=[9,30,22,80,27,10];
+    // ── 手写表格绘制（不依赖 autoTable，确保字体100%生效） ──
     const sortedItems=items.slice().sort((a,b)=>a.date.localeCompare(b.date));
-    const rows=sortedItems.map((item,i)=>[
-      String(i+1),item.name,item.date,item.reason,
-      '\u00a5 '+fmt(item.amount),item.photo?'\u2713':'\u2014'
-    ]);
-    doc.autoTable({
-      startY:y,head:[['\u5e8f\u53f7','\u9879\u76ee\u540d\u79f0','\u65e5\u671f','\u62a5\u9500\u7406\u7531','\u91d1\u989d\uff08\u5143\uff09','\u5355\u636e']],
-      body:rows,foot:[['','','','\u5408  \u8ba1','\u00a5 '+fmt(total),'']],
-      tableWidth:usableW,margin:{left:M,right:M},
-      styles:{font:'ZH',fontSize:8.5,cellPadding:3,textColor:[40,40,40],lineColor:[220,220,220],lineWidth:0.25,overflow:'linebreak'},
-      headStyles:{fillColor:[26,77,143],textColor:255,fontSize:8.5,fontStyle:'normal',halign:'center',cellPadding:4},
-      footStyles:{fillColor:[230,240,251],textColor:[26,77,143],fontSize:9.5,fontStyle:'normal',cellPadding:4},
-      alternateRowStyles:{fillColor:[247,247,245]},
-      columnStyles:{0:{cellWidth:colW[0],halign:'center'},1:{cellWidth:colW[1]},2:{cellWidth:colW[2],halign:'center'},3:{cellWidth:colW[3]},4:{cellWidth:colW[4],halign:'right',textColor:[26,77,143]},5:{cellWidth:colW[5],halign:'center'}},
-      didDrawPage:(d)=>{if(d.pageNumber>1)drawHeader(d.pageNumber);}
+
+    // 列宽定义（mm）：序号 + 项目名称 + 日期 + 理由 + 金额 + 单据 = usableW(178)
+    const cW = {no:9, name:28, date:20, reason:74, amt:27, photo:10};
+    const cX = {
+      no: M,
+      name: M + cW.no,
+      date: M + cW.no + cW.name,
+      reason: M + cW.no + cW.name + cW.date,
+      amt: M + cW.no + cW.name + cW.date + cW.reason,
+      photo: M + cW.no + cW.name + cW.date + cW.reason + cW.amt
+    };
+
+    // 文字按宽度自动换行的辅助函数（中文按字符宽度近似计算）
+    function wrapText(text, maxWidthMM, fontSize) {
+      if (!text) return [''];
+      const charWidthMM = fontSize * 0.5 * 0.3528; // 近似：pt转mm + 中文字符宽度系数
+      const maxChars = Math.max(1, Math.floor(maxWidthMM / charWidthMM));
+      const lines = [];
+      let cur = '';
+      for (const ch of String(text)) {
+        cur += ch;
+        if (cur.length >= maxChars) { lines.push(cur); cur=''; }
+      }
+      if (cur) lines.push(cur);
+      return lines.length ? lines : [''];
+    }
+
+    const tableTop = y;
+    const headH = 8;
+    const padX = 2;
+    const padY = 3.2;
+    const lineH = 4.2; // 每行文字的行高(mm)
+    const minRowH = 9;
+
+    // 预计算每行需要的高度（取决于「项目名称」和「报销理由」换行数）
+    const rowsLayout = sortedItems.map((item,i)=>{
+      const nameLines = wrapText(item.name, cW.name - padX*2, 8.5);
+      const reasonLines = wrapText(item.reason, cW.reason - padX*2, 8.5);
+      const lines = Math.max(nameLines.length, reasonLines.length, 1);
+      const h = Math.max(minRowH, lines * lineH + padY*2 - 2);
+      return {item, idx:i, nameLines, reasonLines, h};
     });
 
-    let fy=doc.lastAutoTable.finalY+10;
-    if(fy>245){doc.addPage();drawHeader(doc.internal.getNumberOfPages());fy=52;}
-    doc.setFont('ZH');doc.setFontSize(11);doc.setTextColor(26,77,143);
-    doc.text('\u7b7e\u5b57\u786e\u8ba4',M,fy);fy+=5;
-    const sigLbls=['\u62a5\u9500\u4eba\u7b7e\u5b57','\u90e8\u95e8\u8d1f\u8d23\u4eba\u5ba1\u6279','\u8d22\u52a1\u5ba1\u6838','\u603b\u7ecf\u7406\u5ba1\u6279'];
+    function drawTableHeader(yy){
+      doc.setFillColor(26,77,143);
+      doc.rect(M, yy, usableW, headH, 'F');
+      setZH(8.5,[255,255,255]);
+      const headers = [
+        {x:cX.no+cW.no/2, t:'序号', align:'center'},
+        {x:cX.name+2, t:'项目名称', align:'left'},
+        {x:cX.date+cW.date/2, t:'日期', align:'center'},
+        {x:cX.reason+2, t:'报销理由', align:'left'},
+        {x:cX.amt+cW.amt-2, t:'金额（元）', align:'right'},
+        {x:cX.photo+cW.photo/2, t:'单据', align:'center'},
+      ];
+      headers.forEach(h=>doc.text(h.t, h.x, yy+5.5, {align:h.align}));
+      return yy + headH;
+    }
+
+    let cy = drawTableHeader(tableTop);
+    let pageNum = 1;
+
+    rowsLayout.forEach((row, ri)=>{
+      // 分页检测
+      if (cy + row.h > 270) {
+        doc.addPage();
+        pageNum = doc.internal.getNumberOfPages();
+        drawHeader(pageNum);
+        cy = drawTableHeader(52);
+      }
+
+      // 斑马纹背景
+      if (ri % 2 === 0) {
+        doc.setFillColor(247,247,245);
+        doc.rect(M, cy, usableW, row.h, 'F');
+      }
+
+      const item = row.item;
+      const textY = cy + padY + 2.2;
+
+      setZH(8.5,[40,40,40]);
+      doc.text(String(row.idx+1), cX.no+cW.no/2, textY, {align:'center'});
+
+      row.nameLines.forEach((line,li)=>{
+        doc.text(line, cX.name+padX, textY + li*lineH);
+      });
+
+      setZH(8.5,[40,40,40]);
+      doc.text(item.date, cX.date+cW.date/2, textY, {align:'center'});
+
+      setZH(7.8,[100,100,100]);
+      row.reasonLines.forEach((line,li)=>{
+        doc.text(line, cX.reason+padX, textY + li*lineH);
+      });
+
+      setZH(9,[26,77,143]);
+      doc.text('¥ '+fmt(item.amount), cX.amt+cW.amt-2, textY, {align:'right'});
+
+      setZH(8.5, item.photo ? [45,122,58] : [170,170,170]);
+      doc.text(item.photo?'✓':'—', cX.photo+cW.photo/2, textY, {align:'center'});
+
+      // 行边框
+      doc.setDrawColor(220,220,220);doc.setLineWidth(0.2);
+      doc.line(M, cy+row.h, M+usableW, cy+row.h);
+
+      cy += row.h;
+    });
+
+    // 表格外边框
+    doc.setDrawColor(200,200,200);doc.setLineWidth(0.3);
+    doc.rect(M, tableTop, usableW, cy - tableTop);
+    // 竖线分隔
+    [cX.name, cX.date, cX.reason, cX.amt, cX.photo].forEach(x=>{
+      doc.line(x, tableTop, x, cy);
+    });
+
+    // 合计行
+    const totalRowH = 9;
+    if (cy + totalRowH > 270) {
+      doc.addPage();
+      pageNum = doc.internal.getNumberOfPages();
+      drawHeader(pageNum);
+      cy = 52;
+    }
+    doc.setFillColor(230,240,251);
+    doc.rect(M, cy, usableW, totalRowH, 'F');
+    doc.setDrawColor(200,200,200);doc.setLineWidth(0.3);
+    doc.rect(M, cy, usableW, totalRowH);
+    setZH(10,[17,17,17]);
+    doc.text('合  计', cX.amt-4, cy+6, {align:'right'});
+    setZH(11,[26,77,143]);
+    doc.text('¥ '+fmt(total), cX.amt+cW.amt-2, cy+6, {align:'right'});
+    cy += totalRowH;
+
+    let fy = cy + 10;
+    if(fy>245){doc.addPage();pageNum=doc.internal.getNumberOfPages();drawHeader(pageNum);fy=52;}
+    setZH(11,[26,77,143]);
+    doc.text('签字确认',M,fy);fy+=5;
+    const sigLbls=['报销人签字','部门负责人审批','财务审核','总经理审批'];
     const scw=usableW/4;
     doc.setFillColor(247,247,245);doc.setDrawColor(220,220,220);doc.setLineWidth(0.3);
     doc.rect(M,fy,usableW,28,'FD');
     sigLbls.forEach((lbl,i)=>{
       const x=M+i*scw;
-      doc.setFont('ZH');doc.setFontSize(8);doc.setTextColor(130,130,130);
+      setZH(8,[130,130,130]);
       doc.text(lbl,x+scw/2,fy+5,{align:'center'});
-      doc.setFontSize(7.5);doc.setTextColor(180,180,180);
-      doc.text('\u65e5\u671f\uff1a___________',x+scw/2,fy+24,{align:'center'});
+      setZH(7.5,[180,180,180]);
+      doc.text('日期：___________',x+scw/2,fy+24,{align:'center'});
       if(i>0){doc.line(x,fy,x,fy+28);}
     });
 
     const pis=items.filter(i=>i.photo);
     if(pis.length>0){
-      doc.addPage();drawHeader(doc.internal.getNumberOfPages());
-      doc.setFont('ZH');doc.setFontSize(11);doc.setTextColor(26,77,143);
-      doc.text('\u5355\u636e\u7167\u7247\u9644\u4ef6',M,52);
+      doc.addPage();pageNum=doc.internal.getNumberOfPages();drawHeader(pageNum);
+      setZH(11,[26,77,143]);
+      doc.text('单据照片附件',M,52);
       let px=M,py=60;const iw=84,ih=60,gap=5;
       for(let i=0;i<pis.length;i++){
         const item=pis[i];
         if(px+iw>W-M+3){px=M;py+=ih+16;}
-        if(py+ih+16>275){doc.addPage();drawHeader(doc.internal.getNumberOfPages());px=M;py=52;}
+        if(py+ih+16>275){doc.addPage();pageNum=doc.internal.getNumberOfPages();drawHeader(pageNum);px=M;py=52;}
         try{const f2=item.photo.startsWith('data:image/png')?'PNG':'JPEG';doc.addImage(item.photo,f2,px,py,iw,ih,undefined,'MEDIUM');}
         catch(e){doc.setFillColor(230,230,230);doc.rect(px,py,iw,ih,'F');}
         doc.setDrawColor(220,220,220);doc.setLineWidth(0.3);doc.rect(px,py,iw,ih);
         doc.setFillColor(247,247,245);doc.rect(px,py+ih,iw,10,'F');
-        doc.setFont('ZH');doc.setFontSize(7);doc.setTextColor(100,100,100);
-        doc.text('No.'+(i+1)+'  '+item.name+'  '+item.date+'  \u00a5'+fmt(item.amount),px+iw/2,py+ih+6.5,{align:'center',maxWidth:iw-2});
+        setZH(7,[100,100,100]);
+        doc.text('No.'+(i+1)+'  '+item.name+'  '+item.date+'  ¥'+fmt(item.amount),px+iw/2,py+ih+6.5,{align:'center',maxWidth:iw-2});
         px+=iw+gap;
       }
     }
 
     // ── 生成 PDF blob ──
-    const fileName=year+'\u5e74'+month+'\u6708-\u62a5\u9500\u6c47\u603b.pdf';
+    const fileName=year+'年'+month+'月-报销汇总.pdf';
     const pdfBlob=doc.output('blob');
 
-    // ── 方案1：Web Share API 分享（让用户自己选择存到文件或其他） ──
+    // ── 方案1：Web Share API 分享 ──
     if(navigator.share && navigator.canShare){
       const file=new File([pdfBlob],fileName,{type:'application/pdf'});
       if(navigator.canShare({files:[file]})){
         try{
           await navigator.share({
-            title:year+'\u5e74'+month+'\u6708\u62a5\u9500\u6c47\u603b',
+            title:year+'年'+month+'月报销汇总',
             files:[file]
           });
           statusEl.innerHTML='';
-          // 显示提示：选「存储到文件」然后发微信
           statusEl.innerHTML='<div class="pdf-progress" style="background:var(--green-lt);color:var(--green);border-color:#86EFAC;">'
-            +'<span>✅ \u5206\u4eab\u83dc\u5355\u5df2\u5f39\u51fa\u2192 \u9009\u300c\u5b58\u50a8\u5230\u300e\u6587\u4ef6\u300f\u300d\u2192 \u518d\u4ece\u6587\u4ef6 App \u53d1\u5fae\u4fe1</span></div>';
+            +'<span>✅ 分享菜单已弹出→ 选「存储到『文件』」→ 再从文件 App 发微信</span></div>';
           btn.disabled=false;return;
         }catch(e){
           if(e.name==='AbortError'){
@@ -828,19 +953,19 @@ async function genPDF() {
       }
     }
 
-    // ── 方案2：直接下载（桌面浏览器备用） ──
+    // ── 方案2：直接下载 ──
     const url=URL.createObjectURL(pdfBlob);
     const a=document.createElement('a');
     a.href=url;a.download=fileName;
     document.body.appendChild(a);a.click();
     setTimeout(()=>{document.body.removeChild(a);URL.revokeObjectURL(url);},2000);
     statusEl.innerHTML='<div class="pdf-progress" style="background:var(--green-lt);color:var(--green);border-color:#86EFAC;">'
-      +'<span>✅ PDF \u5df2\u4fdd\u5b58\uff0c\u53ef\u5728\u300e\u6587\u4ef6\u300f App \u4e2d\u627e\u5230\uff0c\u518d\u53d1\u7ed9\u5fae\u4fe1</span></div>';
-    toast('PDF \u5df2\u4fdd\u5b58\uff01','success');
+      +'<span>✅ PDF 已保存，可在『文件』App 中找到，再发给微信</span></div>';
+    toast('PDF 已保存！','success');
 
   } catch(e) {
-    statusEl.innerHTML='<div class="pdf-progress" style="background:var(--red-lt);color:var(--red);border-color:#FCA5A5">\u26a0\ufe0f \u751f\u6210\u5931\u8d25\uff1a'+e.message+'</div>';
-    toast('\u751f\u6210\u5931\u8d25','error');console.error(e);
+    statusEl.innerHTML='<div class="pdf-progress" style="background:var(--red-lt);color:var(--red);border-color:#FCA5A5">⚠️ 生成失败：'+e.message+'</div>';
+    toast('生成失败','error');console.error(e);
   }
   btn.disabled=false;
 }
